@@ -76,7 +76,7 @@ def send_newsletter_email(recipient_email, content):
 st.set_page_config(page_title="Smart News AI", page_icon="🚀", layout="centered")
 
 st.title("🤖 نظام النشرة الإخبارية الذكية")
-st.markdown("مشروع متكامل يجمع بين **NewsAPI**, **Gemini AI**, و **Python SMTP**.")
+st.markdown("واكب التقنية")
 
 tab1, tab2 = st.tabs(["📝 تسجيل مشترك", "🚀 إرسال فوري"])
 
