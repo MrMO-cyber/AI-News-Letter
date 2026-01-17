@@ -7,117 +7,94 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# --- 1. الإعدادات من Secrets ---
+# --- 1. الإعدادات ---
 NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 EMAIL_PASSWORD = st.secrets["EMAIL_PASSWORD"]
 EMAIL_SENDER = st.secrets["EMAIL_SENDER"]
 
-# --- 2. إعداد Gemini ---
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- 3. محرك الأخبار الذكي (English Search + Arabic Summary) ---
+# --- 2. دالة جلب الأخبار المعدلة مع فحص الأخطاء ---
 def fetch_and_summarize(topic):
-    # البحث بالإنجليزية لضمان نتائج غنية ودقيقة
-    url = f'https://newsapi.org/v2/everything?q={topic}&language=en&sortBy=publishedAt&pageSize=3&apiKey={NEWS_API_KEY}'
+    # استخدام بحث عام جداً لضمان النتائج
+    url = f'https://newsapi.org/v2/everything?q={topic}&language=en&pageSize=3&apiKey={NEWS_API_KEY}'
     
     try:
         response = requests.get(url)
-        articles = response.json().get('articles', [])
+        data = response.json()
+        articles = data.get('articles', [])
         
         if not articles:
-            return f"لم نجد أخباراً جديدة عالمية حول: {topic}."
+            return "❌ خطأ: NewsAPI لم يجد أي مقالات لهذا الموضوع حالياً."
 
-        full_content = f"🤖 نشرتك الذكية المترجمة حول {topic}:\n\n"
+        summary_list = []
+        summary_list.append(f"🤖 نشرة أخبار: {topic}\n" + "="*20 + "\n")
         
         for art in articles:
-            title = art['title']
-            desc = art['description'] if art['description'] else "No description available."
-            link = art['url']
+            title = art.get('title', 'بدون عنوان')
+            desc = art.get('description', 'لا يوجد وصف')
+            link = art.get('url', '#')
             
-            # نطلب من Gemini الترجمة والتلخيص بأسلوب ممتع
-            prompt = f"""
-            Translate and summarize this tech news into Arabic in a creative and engaging way.
-            Use Emojis. The summary should be one concise sentence.
-            Title: {title}
-            Description: {desc}
-            """
-            
-            try:
-                ai_response = model.generate_content(prompt)
-                summary = ai_response.text
-            except:
-                summary = "خبر تقني جديد يستحق المتابعة."
-            
-            full_content += f"⭐ {summary}\n🔗 المصدر: {link}\n\n"
-            
-        return full_content
-    except Exception as e:
-        return f"حدث خطأ تقني: {e}"
+            # فحص إذا كان العنوان أو الوصف يحتوي على محتوى حقيقي
+            if title and desc:
+                prompt = f"Translate to Arabic and summarize in one short creative sentence with emoji: {title}. Context: {desc}"
+                try:
+                    ai_res = model.generate_content(prompt)
+                    clean_text = ai_res.text.strip()
+                    summary_list.append(f"⭐ {clean_text}\n🔗 {link}\n")
+                except:
+                    summary_list.append(f"⭐ {title} (ترجمة آلية)\n🔗 {link}\n")
+        
+        # تحويل القائمة إلى نص واحد طويل
+        final_text = "\n".join(summary_list)
+        return final_text
 
-# --- 4. محرك الإرسال ---
-def send_newsletter_email(recipient_email, content):
+    except Exception as e:
+        return f"❌ خطأ فني: {e}"
+
+# --- 3. دالة الإرسال ---
+def send_email(to_email, body):
     msg = MIMEMultipart()
     msg['From'] = EMAIL_SENDER
-    msg['To'] = recipient_email
-    msg['Subject'] = "نشرتك التقنية العالمية المترجمة 🤖"
-    msg.attach(MIMEText(content, 'plain', 'utf-8'))
+    msg['To'] = to_email
+    msg['Subject'] = "نشرتك التقنية الذكية 🤖"
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
     
     try:
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.sendmail(EMAIL_SENDER, recipient_email, msg.as_string())
+        server.sendmail(EMAIL_SENDER, to_email, msg.as_string())
         server.quit()
         return True
     except Exception as e:
-        st.error(f"خطأ في الإرسال: {e}")
+        st.error(f"فشل إرسال الإيميل: {e}")
         return False
 
-# --- 5. واجهة المستخدم ---
-st.set_page_config(page_title="Global AI News", page_icon="🌐")
+# --- 4. واجهة Streamlit ---
+st.title("🚀 محرك الأخبار الذكي")
 
-st.title("🌐 وكالة أنباء الذكاء الاصطناعي")
-st.markdown("نجلب لك الأخبار من المصادر العالمية، نترجمها، ونلخصها لك بالذكاء الاصطناعي.")
+user_email = st.text_input("بريدك الإلكتروني:")
+topic_choice = st.selectbox("اختر موضوع البحث:", ["Artificial Intelligence", "Cybersecurity", "Programming"])
 
-tab1, tab2 = st.tabs(["📝 تسجيل", "🚀 إرسال فوري"])
-
-with tab1:
-    with st.form("reg_form", clear_on_submit=True):
-        name = st.text_input("الاسم")
-        email = st.text_input("البريد الإلكتروني")
-        # كلمات البحث بالإنجليزية لنتائج أفضل في الـ API
-        topic_map = {
-            "الذكاء الاصطناعي": "Artificial Intelligence",
-            "الأمن السيبراني": "Cybersecurity",
-            "البرمجة": "Programming",
-            "الفضاء": "Space Technology"
-        }
-        user_choice = st.multiselect("اهتماماتك:", list(topic_map.keys()))
-        
-        if st.form_submit_button("اشترك"):
-            if name and email and user_choice:
-                # منطق الحفظ (اختياري في هذه المرحلة)
-                st.success(f"أهلاً بك يا {name}!")
-
-with tab2:
-    st.subheader("اختبر النظام (ترجمة فورية)")
-    target_email = st.text_input("بريدك الإلكتروني:")
-    # اختيار المواضيع بالانجليزية خلف الكواليس
-    target_topic_ar = st.selectbox("اختر موضوعاً:", ["الذكاء الاصطناعي", "الأمن السيبراني", "البرمجة"])
-    
-    topic_mapping = {
-        "الذكاء الاصطناعي": "Artificial Intelligence",
-        "الأمن السيبراني": "Cybersecurity",
-        "البرمجة": "Software Development"
-    }
-
-    if st.button("أرسل النشرة المترجمة الآن 📧"):
-        if target_email:
-            with st.spinner("جاري جلب الأخبار العالمية وترجمتها..."):
-                content = fetch_and_summarize(topic_mapping[target_topic_ar])
-                st.text_area("معاينة المحتوى قبل الإرسال:", content, height=200)
-                if send_newsletter_email(target_email, content):
-                    st.success("وصلت النشرة المترجمة لبريدك!")
+if st.button("تشغيل النظام وإرسال النشرة"):
+    if user_email:
+        with st.spinner("1. جاري جلب الأخبار... 2. جاري التلخيص بـ Gemini..."):
+            # تنفيذ الجلب
+            content = fetch_and_summarize(topic_choice)
+            
+            # --- خطوة الفحص (Debug) ---
+            st.subheader("📝 معاينة المحتوى المستخرج:")
+            st.text_area("النص الذي سيتم إرساله:", value=content, height=200)
+            
+            # تنفيذ الإرسال إذا كان المحتوى غير فارغ
+            if "❌" not in content:
+                if send_email(user_email, content):
+                    st.success("✅ تم توليد المحتوى وإرساله بنجاح!")
                     st.balloons()
+            else:
+                st.error("توقف النظام: لا يوجد محتوى صالح للإرسال.")
+    else:
+        st.warning("أدخل البريد الإلكتروني أولاً.")
